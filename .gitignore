@@ -5,22 +5,22 @@ __pycache__/
 
 # Etc
 *.json
-*.csv
-*.jpg
+# *.csv
+# *.jpg
 *.png
 *.jpeg
 *.mp4
 *.mov
-*.xlsx
+# *.xlsx
 *.tsv
 *.ckpt
 *.checkpoint
 *.h5
 *.pt
 *.pickle
-events.out.tfevents.*
+# events.out.tfevents.*
 checkpoint-*.*
-*.txt
+# *.txt
 *.mp3
 
 # C extensions

@@ -1,13 +1,15 @@
-import torch
 from torch.utils.data import Dataset
+from torchvision.transforms import transforms
+import torch
+from tqdm import tqdm
 from enum import Enum
+import numpy as np
 import glob
 import cv2
-import numpy as np
 import math
 import random
-from PIL import Image
-from torchvision.transforms import transforms
+import os
+import shutil
 
 class DatasetType(Enum):
     TRAIN = "Train"
@@ -15,12 +17,14 @@ class DatasetType(Enum):
     TEST = "Test"
 
 class NSRVideoDataset(Dataset):
-    def __init__(self, dataset_path : str, split : tuple, dataset_type : str, feature : str, use_frame_df : bool, is_transform : bool) -> None:
+    def __init__(self, dataset_path : str, split : tuple, dataset_type : str, feature : str, use_frame_df : bool, is_transform : bool,
+                    is_voting : bool = False, is_preprocess : bool = False) -> None:
         super().__init__()
         self.dataset_type = dataset_type
         self.is_transform = is_transform
         self.feature = feature
         self.use_frame_df = use_frame_df
+        self.is_voting = is_voting
 
         self.label_paths = glob.glob(dataset_path + "\*")
         agree_paths = glob.glob(self.label_paths[0] + "\*.mp4")

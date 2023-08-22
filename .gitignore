@@ -150,3 +150,7 @@ dmypy.json
 
 # model
 *.pth.tar
+
+# res
+**/error_non_to_ag/*
+**/error_ag_to_non/*

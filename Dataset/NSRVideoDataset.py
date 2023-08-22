@@ -1,15 +1,29 @@
 from torch.utils.data import Dataset
 from torchvision.transforms import transforms
 import torch
-from tqdm import tqdm
 from enum import Enum
+from tqdm import tqdm
 import numpy as np
 import glob
+import random
 import cv2
 import math
-import random
 import os
 import shutil
+
+"""
+# FRAME_DIFF_HIST 프레임 차이 히스토그램 - THRES & TEST
+FRAME_DIFF_HIST_THRES = r'D:\Video-Dataset\2022-NSR-voting-diff-hist-thres'
+FRAME_DIFF_HIST_TEST = r'D:\Video-Dataset\2023-NSR-voting-diff-hist-test'
+
+# DIAG 밝기값 대각선 비주얼리듬 - THRES & TEST
+DIAG_THRES = r'D:\Video-Dataset\2022-NSR-voting-diag-thres'
+DIAG_TEST = r'D:\Video-Dataset\2023-NSR-voting-diag-test'
+
+# DIAG_DIFF 밝기값 차이 대각선 비주얼리듬 - THRES & TEST
+DIAG_DIFF_THRES = r'D:\Video-Dataset\2022-NSR-voting-diag-diff-thres'
+DIAG_DIFF_TEST = r'D:\Video-Dataset\2023-NSR-voting-diag-diff-test'
+"""
 
 class DatasetType(Enum):
     TRAIN = "Train"
@@ -18,13 +32,15 @@ class DatasetType(Enum):
 
 class NSRVideoDataset(Dataset):
     def __init__(self, dataset_path : str, split : tuple, dataset_type : str, feature : str, use_frame_df : bool, is_transform : bool,
-                    is_voting : bool = False, is_preprocess : bool = False) -> None:
+                    is_voting : bool = False, is_preprocess : bool = False, is_mixed : bool = False, video_count = 0) -> None:
         super().__init__()
         self.dataset_type = dataset_type
         self.is_transform = is_transform
         self.feature = feature
         self.use_frame_df = use_frame_df
         self.is_voting = is_voting
+        self.is_mixed = is_mixed
+        self.video_count = video_count
 
         self.label_paths = glob.glob(dataset_path + "\*")
         agree_paths = glob.glob(self.label_paths[0] + "\*.mp4")
@@ -44,26 +60,59 @@ class NSRVideoDataset(Dataset):
         elif dataset_type == DatasetType.VALIDATION.value:
             self.data_paths = agree_paths[train_split_index_agree:validation_split_index_agree] + non_agree_paths[train_split_index_non_agree:validation_split_index_non_agree]
         elif dataset_type == DatasetType.TEST.value:
-            if is_voting: # 전체 테스트셋 세그멘테이션을 위한 데이터셋 세팅
-                # self.save_dir = r'D:\Video-Dataset\2022-NSR-voting-diag-thres' # 적절한 thres_value를 찾기 위한 dataset
-                self.save_dir = r'D:\Video-Dataset\2023-NSR-voting-diag-test' # 확장 실험을 위한 dataset
+            if is_voting:
+                self.save_dir = r'D:\Video-Dataset\2023-NSR-22-23-mixed'
 
                 if is_preprocess:
                     print('Preprocessing of voting_test dataset, this will take long, but it will be done only once.')
                     print(f'{self.save_dir}: default save path\n{dataset_path} : default dataset path')
                     self.preprocess(dataset_path)
                 
-                print('load of voting_test dataset)')
+                print(f'{self.save_dir}: default save path\n{dataset_path} : default dataset path')
+                print('load of voting_test dataset')
 
                 self.label_paths = glob.glob(self.save_dir + "\*")
-                agree_paths = glob.glob(self.label_paths[0] + "\*\*")
-                agree_paths = [(img_path, [1]) for img_path in agree_paths]
+                agree_paths = glob.glob(self.label_paths[0] + "\*")
+                non_agree_paths = glob.glob(self.label_paths[1] + "\*")
 
-                non_agree_paths = glob.glob(self.label_paths[1] + "\*\*")
-                non_agree_paths = [(img_path, [0]) for img_path in non_agree_paths]
+                if is_mixed:
+                    random.shuffle(agree_paths)
+                    random.shuffle(non_agree_paths)
 
-                self.data_paths = agree_paths + non_agree_paths
-                print(f'data_paths: {len(agree_paths)} + {len(non_agree_paths)} = {len(self.data_paths)}')
+                    agree_paths = agree_paths[:video_count]
+                    non_agree_paths = non_agree_paths[:video_count]
+                    
+                    print('reset agree_paths and non_agree_paths')
+                    print(f'{len(agree_paths)}, {len(non_agree_paths)}')
+
+
+                    agree_items = []
+                    for path in agree_paths:
+                        for item in os.listdir(path):
+                            tempPath = os.path.join(path, item)
+                            agree_items.append(tempPath)
+
+                    non_agree_items = []
+                    for path in non_agree_paths:
+                        for item in os.listdir(path):
+                            tempPath = os.path.join(path, item)
+                            non_agree_items.append(tempPath)
+
+                    agree_paths = [(img_path, [1]) for img_path in agree_items]
+                    non_agree_paths = [(img_path, [0]) for img_path in non_agree_items]
+
+                    self.data_paths = agree_paths + non_agree_paths
+                    print(f'data_paths: {len(agree_paths)} + {len(non_agree_paths)} = {len(self.data_paths)}')
+
+                else:
+                    agree_paths = glob.glob(self.label_paths[0] + "\*")
+                    non_agree_paths = glob.glob(self.label_paths[1] + "\*")
+
+                    agree_paths = [(img_path, [1]) for img_path in agree_paths]
+                    non_agree_paths = [(img_path, [0]) for img_path in non_agree_paths]
+
+                    self.data_paths = agree_paths + non_agree_paths
+                    print(f'data_paths: {len(agree_paths)} + {len(non_agree_paths)} = {len(self.data_paths)}')
 
             else: # 전체 테스트셋 세그멘테이션이 아니면 일반 테스트셋 로드와 같음
                 self.data_paths = agree_paths[validation_split_index_agree:] + non_agree_paths[validation_split_index_non_agree:]
@@ -74,7 +123,10 @@ class NSRVideoDataset(Dataset):
         return len(self.data_paths)
 
     def __getitem__(self, index):
-        video_diagonal = self.extract_feature(self.data_paths[index][0])
+        if self.is_voting:
+            video_diagonal = self.imread((self.data_paths[index][0]))
+        else:
+            video_diagonal = self.extract_feature(self.data_paths[index][0])
         label = torch.FloatTensor(self.data_paths[index][1])
 
         if self.is_transform:
@@ -185,7 +237,6 @@ class NSRVideoDataset(Dataset):
                 file_path = os.path.join(root_dir, class_folder, file)
 
                 img_save_path = os.path.join(self.save_dir, class_folder, file[:-4])
-                
                 if not os.path.exists(img_save_path):
                     os.mkdir(img_save_path)
                 
@@ -193,33 +244,31 @@ class NSRVideoDataset(Dataset):
                 video_total_frames_num = videocap.get(cv2.CAP_PROP_FRAME_COUNT)
                 video_frame_per_s = int(videocap.get(cv2.CAP_PROP_FPS))
 
-                # Use frame difference
                 if self.use_frame_df:
                     section_split = 257
-                # Use each frame 
                 else:
                     section_split = 256
         
-                total_count = int(video_total_frames_num // (video_frame_per_s*180))
+                total_count = int(video_total_frames_num // (video_frame_per_s * 180))
                 start_frame = 1
 
                 videocap.release()
 
-                for idx in range(1, (total_count+1)):
+                for idx in range(1, (total_count + 1)):
                     frame_diagonals = []
 
-                    sections = np.linspace(start_frame, video_frame_per_s*180*idx , section_split)
+                    sections = np.linspace(start_frame, video_frame_per_s * 180 * idx , section_split)
                     sections = list(map(math.floor, sections))
 
                     videocap = cv2.VideoCapture(file_path)
-                    videocap.set(cv2.CAP_PROP_POS_FRAMES, start_frame-1)
+                    videocap.set(cv2.CAP_PROP_POS_FRAMES, start_frame - 1)
 
                     check_idx = 0
                     while(videocap.isOpened()):
                        
                         ret, frame = videocap.read()
                      
-                        if not ret or (int(videocap.get(cv2.CAP_PROP_POS_FRAMES)) == video_frame_per_s*180*idx+1) or check_idx == 256:
+                        if not ret or (int(videocap.get(cv2.CAP_PROP_POS_FRAMES)) == video_frame_per_s * 180 * idx + 1) or check_idx == 256:
                             break
                         if int(videocap.get(cv2.CAP_PROP_POS_FRAMES)) in sections and self.feature == "diag":
                             frame = cv2.resize(frame, (256, 256))
